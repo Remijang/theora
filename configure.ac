@@ -571,6 +571,36 @@ AC_ARG_ENABLE(examples,
      [ ac_enable_examples=$enableval ], [ ac_enable_examples=yes] )
 AM_CONDITIONAL(THEORA_ENABLE_EXAMPLES, [test "x${ac_enable_examples}" != xno])
 
+dnl Configuration option for cuda
+
+ac_enable_cuda=auto
+AC_ARG_ENABLE(cuda,
+     AS_HELP_STRING([--enable-cuda], [Build with Cuda]),
+     [ ac_enable_cuda=$enableval ], [ ac_enable_cuda=no] )
+
+AC_PATH_PROG([NVCC], [nvcc], [])
+
+HAVE_CUDA=no
+if test "x${ac_enable_cuda}" != xno; then
+  if test "x$NVCC" != "x"; then
+    HAVE_CUDA=yes
+  elif test "x${ac_enable_cuda}" = xyes; then
+    AC_MSG_ERROR([nvcc not found, skip this option])
+  fi
+fi
+
+CUDA_CFLAGS=""
+CUDA_LIBS=""
+if test "x$HAVE_CUDA" = xyes; then
+  CUDA_CFLAGS="-Xcompiler -fPIC"
+  CUDA_LIBS=""
+fi
+
+AM_CONDITIONAL(HAVE_CUDA, [test "x$HAVE_CUDA" != xno])
+AC_SUBST([CUDA_CFLAGS])
+AC_SUBST([CUDA_LIBS])
+AC_SUBST([NVCC])
+
 dnl --------------------------------------------------
 dnl Check for headers
 dnl --------------------------------------------------
@@ -621,6 +651,9 @@ if test x$HAVE_PNG = xyes; then
 fi
 if test x$HAVE_TIFF = xyes; then
   BUILDABLE_EXAMPLES="$BUILDABLE_EXAMPLES tiff2theora\$(EXEEXT)"
+fi
+if test x$HAVE_CUDA = xyes; then
+  BUILDABLE_EXAMPLES="$BUILDABLE_EXAMPLES cuda_test\$(EXEEXT)"
 fi
 AC_SUBST(BUILDABLE_EXAMPLES)
 
