@@ -109,6 +109,34 @@ struct oc_dec_pipeline_state{
   int                 mcu_nvfrags;
   int                 loop_filter;
   int                 pp_level;
+
+# if defined(HAVE_CUDA)
+  int                 cuda_n;
+  int                 cuda_count;
+  int16_t             *cuda_in;
+  int16_t             *cuda_out;
+  int16_t             *cuda_in_dev;
+  int16_t             *cuda_out_dev;
+  ptrdiff_t           *cuda_fragment_indices;
+  unsigned char       *cuda_plane_indices;
+  
+  int                  use_cuda_mc;
+  uint8_t             *cuda_ref_dev[3];
+  uint8_t             *cuda_ref_gold_dev[3];
+  uint8_t             *cuda_dst_dev[3];
+  int                 *cuda_mv1_dev;
+  int                 *cuda_mv2_dev;
+  int                 *cuda_refi_dev;
+  int                 *cuda_plane_dev;
+  int                 *cuda_ystride_dev;
+  ptrdiff_t           *cuda_off_dev;
+  int                 *cuda_mv1_host;
+  int                 *cuda_mv2_host;
+  int                 *cuda_refi_host;
+  int                 *cuda_plane_host;
+  ptrdiff_t           *cuda_off_host;
+# endif
+
 };
 
 

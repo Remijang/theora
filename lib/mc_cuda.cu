@@ -50,7 +50,7 @@ __global__ void mc_kernel(const mc_pack p) {
 
 extern "C" void mc_cuda_launch(const mc_pack params) {
   int threads = 128;
-  int blocks = (params->nfrags + threads - 1) / threads;
+  int blocks = (params.nfrags + threads - 1) / threads;
   mc_kernel<<<blocks, threads>>>(params);
 }
 
