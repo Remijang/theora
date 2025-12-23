@@ -238,22 +238,18 @@ void cuda_transfer_to_device(oc_dec_ctx *_dec){
   int ystride_host[3];
   int prev_idx = _dec->state.ref_frame_idx[OC_FRAME_PREV];
   int gold_idx = _dec->state.ref_frame_idx[OC_FRAME_GOLD];
-  int dst_idx = _dec->state.ref_frame_idx[OC_FRAME_SELF];
-  if (prev_idx < 0 || gold_idx < 0 || dst_idx < 0)
-    return;
 
   for (int i = 0; i < 3; ++i) {
-    unsigned char *prev_data = _dec->state.ref_frame_bufs[prev_idx][i].data;
+    unsigned char *prev_data = prev_idx >= 0 ? _dec->state.ref_frame_bufs[prev_idx][i].data : NULL;
     unsigned char *gold_data = gold_idx >= 0 ? _dec->state.ref_frame_bufs[gold_idx][i].data : NULL;
-    unsigned char *dst_data = _dec->state.ref_frame_bufs[dst_idx][i].data;
     
     ptrdiff_t stride = _dec->state.ref_ystride[i];
     size_t plane_bytes = (size_t) (stride < 0 ? -stride : stride) * (_dec->state.fplanes[i].nvfrags << 3);
 
-    cudaMemcpy(_dec->pipe.cuda_ref_dev[i], prev_data, plane_bytes, cudaMemcpyHostToDevice);
+    if (prev_data) cudaMemcpy(_dec->pipe.cuda_ref_dev[i], prev_data, plane_bytes, cudaMemcpyHostToDevice);
     if (gold_data) cudaMemcpy(_dec->pipe.cuda_ref_gold_dev[i], gold_data, plane_bytes, cudaMemcpyHostToDevice);
-    else cudaMemcpy(_dec->pipe.cuda_ref_gold_dev[i], prev_data, plane_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(_dec->pipe.cuda_dst_dev[i], dst_data, plane_bytes, cudaMemcpyHostToDevice);
+    else if (prev_data) cudaMemcpy(_dec->pipe.cuda_ref_gold_dev[i], prev_data, plane_bytes, cudaMemcpyHostToDevice);
+
     ystride_host[i] = _dec->state.ref_ystride[i];
   }
   cudaMemcpy(_dec->pipe.cuda_ystride_dev, ystride_host, sizeof(ystride_host), cudaMemcpyHostToDevice);
