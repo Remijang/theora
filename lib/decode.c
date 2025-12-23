@@ -28,33 +28,13 @@
 #endif
 
 #if defined(HAVE_CUDA)
-#include <cuda_runtime.h>
 #include "mc_cuda.h"
+#include "cuda_helper.h"
 
 extern void idct8x8_batch(
   const int16_t *in,
   int16_t *out,
   int n
-);
-
-static void cuda_transfer_to_device(oc_dec_ctx *_dec);
-
-static void cuda_transfer_to_host(oc_dec_ctx *_dec);
-
-static void cuda_process(
-  oc_dec_ctx *_dec,
-  oc_dec_pipeline_state *_pipe,
-  int _pli
-);
-
-static void cuda_enqueue(
-  oc_dec_ctx *_dec,
-  oc_dec_pipeline_state *_pipe,
-  int _pli,
-  ptrdiff_t _fragi,
-  int16_t _dct_coeffs[128],
-  int _last_zzi,
-  uint16_t _dc_quant
 );
 #endif
 
@@ -467,61 +447,7 @@ static void oc_dec_clear(oc_dec_ctx *_dec){
   _ogg_free(_dec->dct_tokens);
 
 #if defined(HAVE_CUDA)
-  _dec->pipe.cuda_n = 0;
-  _dec->pipe.cuda_count = 0;
-  _ogg_free(_dec->pipe.cuda_in);
-  _ogg_free(_dec->pipe.cuda_out);
-  if (_dec->pipe.cuda_in_dev) {
-    cudaFree(_dec->pipe.cuda_in_dev);
-    _dec->pipe.cuda_in_dev = NULL;
-  }
-  if (_dec->pipe.cuda_out_dev) {
-    cudaFree(_dec->pipe.cuda_out_dev);
-    _dec->pipe.cuda_out_dev = NULL;
-  }
-  _ogg_free(_dec->pipe.cuda_fragment_indices);
-  _ogg_free(_dec->pipe.cuda_plane_indices);
-
-  _dec->pipe.use_cuda_mc = 1;
-  for (int i = 0; i < 3; ++i) {
-    if (_dec->pipe.cuda_ref_dev[i]) {
-      cudaFree(_dec->pipe.cuda_ref_dev[i]);
-      _dec->pipe.cuda_ref_dev[i] = NULL;
-    }
-    if (_dec->pipe.cuda_ref_gold_dev[i]) {
-      cudaFree(_dec->pipe.cuda_ref_gold_dev[i]);
-      _dec->pipe.cuda_ref_gold_dev[i] = NULL;
-    }
-    if (_dec->pipe.cuda_dst_dev[i]) {
-      cudaFree(_dec->pipe.cuda_dst_dev[i]);
-      _dec->pipe.cuda_dst_dev[i] = NULL;
-    }
-  }
-  if (_dec->pipe.cuda_mv1_dev) {
-    cudaFree(_dec->pipe.cuda_mv1_dev);
-    _dec->pipe.cuda_mv1_dev = NULL;
-  }
-  if (_dec->pipe.cuda_mv2_dev) {
-    cudaFree(_dec->pipe.cuda_mv2_dev);
-    _dec->pipe.cuda_mv2_dev = NULL;
-  }
-  if (_dec->pipe.cuda_refi_dev) {
-    cudaFree(_dec->pipe.cuda_refi_dev);
-    _dec->pipe.cuda_refi_dev = NULL;
-  }
-  if (_dec->pipe.cuda_plane_dev) {
-    cudaFree(_dec->pipe.cuda_plane_dev);
-    _dec->pipe.cuda_plane_dev = NULL;
-  }
-  if (_dec->pipe.cuda_ystride_dev) {
-    cudaFree(_dec->pipe.cuda_ystride_dev);
-    _dec->pipe.cuda_ystride_dev = NULL;
-  }
-  _ogg_free(_dec->pipe.cuda_mv1_host);
-  _ogg_free(_dec->pipe.cuda_mv2_host);
-  _ogg_free(_dec->pipe.cuda_refi_host);
-  _ogg_free(_dec->pipe.cuda_plane_host);
-  _ogg_free(_dec->pipe.cuda_off_host);
+  cuda_clear(_dec);
 #endif
 
   oc_huff_trees_clear(_dec->huff_tables);
@@ -1473,285 +1399,12 @@ static void oc_dec_pipeline_init(oc_dec_ctx *_dec,
   }
 
 #if defined(HAVE_CUDA)
-  _pipe->cuda_n = 0;
-  _pipe->cuda_count = 0;
-  _pipe->cuda_in = NULL;
-  _pipe->cuda_out = NULL;
-  _pipe->cuda_in_dev = NULL;
-  _pipe->cuda_out_dev = NULL;
-  _pipe->cuda_fragment_indices = NULL;
-  _pipe->cuda_plane_indices = NULL;
-
-  _pipe->use_cuda_mc = 1;
-  for (int i = 0; i < 3; ++i) {
-    _pipe->cuda_ref_dev[i] = NULL;
-    _pipe->cuda_ref_gold_dev[i] = NULL;
-    _pipe->cuda_dst_dev[i] = NULL;
-  }
-  _pipe->cuda_mv1_dev = NULL;
-  _pipe->cuda_mv2_dev = NULL;
-  _pipe->cuda_refi_dev = NULL;
-  _pipe->cuda_plane_dev = NULL;
-  _pipe->cuda_ystride_dev = NULL;
-  _pipe->cuda_off_dev = NULL;
-  _pipe->cuda_mv1_host = NULL;
-  _pipe->cuda_mv2_host = NULL;
-  _pipe->cuda_refi_host = NULL;
-  _pipe->cuda_plane_host = NULL;
-  _pipe->cuda_off_host = NULL;
-
-  size_t blocks = (size_t) _dec->state.nfrags;
-  if(blocks > 0) {
-    _pipe->cuda_n = blocks;
-    _pipe->cuda_in = (int16_t *) _ogg_malloc(blocks * 64 * sizeof(int16_t));
-    _pipe->cuda_out = (int16_t *) _ogg_malloc(blocks * 64 * sizeof(int16_t));
-    cudaMalloc(&_pipe->cuda_in_dev, blocks * 64 * sizeof(int16_t));
-    cudaMalloc(&_pipe->cuda_out_dev, blocks * 64 * sizeof(int16_t));
-    _pipe->cuda_fragment_indices = (ptrdiff_t *) _ogg_malloc(blocks * sizeof(ptrdiff_t));
-    _pipe->cuda_plane_indices = (unsigned char *) _ogg_malloc(blocks * sizeof(unsigned char));
-    
-    for (int i = 0; i < 3; ++i) {
-      ptrdiff_t stride =_dec->state.ref_ystride[i];
-      size_t plane_bytes = (size_t) (stride < 0 ? -stride : stride) * (_dec->state.fplanes[i].nvfrags << 3);
-      cudaMalloc(&_pipe->cuda_ref_dev[i], plane_bytes);
-      cudaMalloc(&_pipe->cuda_ref_gold_dev[i], plane_bytes);
-      cudaMalloc(&_pipe->cuda_dst_dev[i], plane_bytes);
-    }
-    cudaMalloc(&_pipe->cuda_mv1_dev, blocks * sizeof(int));
-    cudaMalloc(&_pipe->cuda_mv2_dev, blocks * sizeof(int));
-    cudaMalloc(&_pipe->cuda_refi_dev, blocks * sizeof(int));
-    cudaMalloc(&_pipe->cuda_plane_dev, blocks * sizeof(int));
-    cudaMalloc(&_pipe->cuda_ystride_dev, 3 * sizeof(int));
-    cudaMalloc(&_pipe->cuda_off_dev, blocks * sizeof(ptrdiff_t));
-    _pipe->cuda_mv1_host = (int *) _ogg_malloc(blocks * sizeof(int));
-    _pipe->cuda_mv2_host = (int *) _ogg_malloc(blocks * sizeof(int));
-    _pipe->cuda_refi_host = (int *) _ogg_malloc(blocks * sizeof(int));
-    _pipe->cuda_plane_host = (int *) _ogg_malloc(blocks * sizeof(int));
-    _pipe->cuda_off_host = (ptrdiff_t *) _ogg_malloc(blocks * sizeof(ptrdiff_t));
-
-
-
-    if(
-      !_pipe->cuda_in || !_pipe->cuda_out || !_pipe->cuda_in_dev || !_pipe->cuda_out_dev ||
-      !_pipe->cuda_fragment_indices || !_pipe->cuda_plane_indices ||
-      !_pipe->cuda_ref_dev[0] || !_pipe->cuda_ref_dev[1] || !_pipe->cuda_ref_dev[2] ||
-      !_pipe->cuda_ref_gold_dev[0] || !_pipe->cuda_ref_gold_dev[1] || !_pipe->cuda_ref_gold_dev[2] ||
-      !_pipe->cuda_dst_dev[0] || !_pipe->cuda_dst_dev[1] || !_pipe->cuda_dst_dev[2] ||
-      !_pipe->cuda_mv1_dev || !_pipe->cuda_mv2_dev || !_pipe->cuda_refi_dev ||
-      !_pipe->cuda_plane_dev || !_pipe->cuda_ystride_dev || !_pipe->cuda_off_dev ||
-      !_pipe->cuda_mv1_host || !_pipe->cuda_mv2_host ||
-      !_pipe->cuda_refi_host || !_pipe->cuda_plane_host || !_pipe->cuda_off_host
-    ){
-      _ogg_free(_pipe->cuda_in);
-      _ogg_free(_pipe->cuda_out);
-      if(_pipe->cuda_in_dev) cudaFree(_pipe->cuda_in_dev);
-      if(_pipe->cuda_out_dev) cudaFree(_pipe->cuda_out_dev);
-      _ogg_free(_pipe->cuda_fragment_indices);
-      _ogg_free(_pipe->cuda_plane_indices);
-
-      for (int i = 0; i < 3; ++i) {
-        if(_pipe->cuda_ref_dev[i])cudaFree(_pipe->cuda_ref_dev[i]);
-        if(_pipe->cuda_ref_gold_dev[i])cudaFree(_pipe->cuda_ref_gold_dev[i]);
-        if(_pipe->cuda_dst_dev[i])cudaFree(_pipe->cuda_dst_dev[i]);
-      }
-      if(_pipe->cuda_mv1_dev) cudaFree(_pipe->cuda_mv1_dev);
-      if(_pipe->cuda_mv2_dev) cudaFree(_pipe->cuda_mv2_dev);
-      if(_pipe->cuda_refi_dev) cudaFree(_pipe->cuda_refi_dev);
-      if(_pipe->cuda_plane_dev) cudaFree(_pipe->cuda_plane_dev);
-      if(_pipe->cuda_ystride_dev) cudaFree(_pipe->cuda_ystride_dev);
-      if(_pipe->cuda_off_dev) cudaFree(_pipe->cuda_off_dev);
-      _ogg_free(_pipe->cuda_mv1_host);
-      _ogg_free(_pipe->cuda_mv2_host);
-      _ogg_free(_pipe->cuda_refi_host);
-      _ogg_free(_pipe->cuda_plane_host);
-      _ogg_free(_pipe->cuda_off_host);
-
-      _pipe->cuda_n = 0;
-      _pipe->cuda_count = 0;
-      _pipe->cuda_in = NULL;
-      _pipe->cuda_out = NULL;
-      _pipe->cuda_in_dev = NULL;
-      _pipe->cuda_out_dev = NULL;
-      _pipe->cuda_fragment_indices = NULL;
-      _pipe->cuda_plane_indices = NULL;
-
-      _pipe->use_cuda_mc = 0;
-      for (int i = 0; i < 3; ++i) {
-        _pipe->cuda_ref_dev[i] = NULL;
-        _pipe->cuda_ref_gold_dev[i] = NULL;
-        _pipe->cuda_dst_dev[i] = NULL;
-      }
-      _pipe->cuda_mv1_dev = NULL;
-      _pipe->cuda_mv2_dev = NULL;
-      _pipe->cuda_refi_dev = NULL;
-      _pipe->cuda_plane_dev = NULL;
-      _pipe->cuda_ystride_dev = NULL; 
-      _pipe->cuda_off_dev = NULL;
-      _pipe->cuda_mv1_host = NULL;
-      _pipe->cuda_mv2_host = NULL;
-      _pipe->cuda_refi_host = NULL;
-      _pipe->cuda_plane_host = NULL;
-      _pipe->cuda_off_host = NULL;
-    }
-  }
+  cuda_init(_dec, _pipe);
 #endif
 
   /*Clear down the DCT coefficient buffer for the first block.*/
   for(zzi=0;zzi<64;zzi++)_pipe->dct_coeffs[zzi]=0;
 }
-
-#if defined(HAVE_CUDA)
-static void cuda_transfer_to_device(oc_dec_ctx *_dec){
-  int ystride_host[3];
-  int prev_idx = _dec->state.ref_frame_idx[OC_FRAME_PREV];
-  int gold_idx = _dec->state.ref_frame_idx[OC_FRAME_GOLD];
-  int dst_idx = _dec->state.ref_frame_idx[OC_FRAME_SELF];
-  
-  for (int i = 0; i < 3; ++i) {
-    unsigned char *prev_data = _dec->state.ref_frame_bufs[prev_idx][i].data;
-    unsigned char *gold_data = gold_idx >= 0 ? _dec->state.ref_frame_bufs[gold_idx][i].data : NULL;
-    unsigned char *dst_data = _dec->state.ref_frame_bufs[dst_idx][i].data;
-    
-    ptrdiff_t stride = _dec->state.ref_ystride[i];
-    size_t plane_bytes = (size_t) (stride < 0 ? -stride : stride) * (_dec->state.fplanes[i].nvfrags << 3);
-
-    cudaMemcpy(_dec->pipe.cuda_ref_dev[i], prev_data, plane_bytes, cudaMemcpyHostToDevice);
-    if (gold_data) cudaMemcpy(_dec->pipe.cuda_ref_gold_dev[i], gold_data, plane_bytes, cudaMemcpyHostToDevice);
-    else cudaMemcpy(_dec->pipe.cuda_ref_gold_dev[i], prev_data, plane_bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(_dec->pipe.cuda_dst_dev[i], dst_data, plane_bytes, cudaMemcpyHostToDevice);
-    ystride_host[i] = _dec->state.ref_ystride[i];
-  }
-  cudaMemcpy(_dec->pipe.cuda_ystride_dev, ystride_host, sizeof(ystride_host), cudaMemcpyHostToDevice);
-}
-
-static void cuda_transfer_to_host(oc_dec_ctx *_dec){
-  int dst_idx = _dec->state.ref_frame_idx[OC_FRAME_SELF];
-  for (int i = 0; i < 3; ++i) {
-    ptrdiff_t stride = _dec->state.ref_ystride[i];
-    size_t plane_bytes = (size_t) (stride < 0 ? -stride : stride) * (_dec->state.fplanes[i].nvfrags << 3);
-    cudaMemcpy(_dec->state.ref_frame_bufs[dst_idx][i].data, _dec->pipe.cuda_dst_dev[i], plane_bytes, cudaMemcpyDeviceToHost);
-  }
-}
-
-static int cuda_mv_off(const oc_theora_state *_state, int _offsets[2], int _pli, oc_mv _mv){
-  int qpx = _pli != 0 && !(_state->info.pixel_fmt & 2);
-  int qpy = _pli != 0 && !(_state->info.pixel_fmt & 1);
-  int mx = OC_MVMAP[qpx][OC_MV_X(_mv) + 31];
-  int my = OC_MVMAP[qpy][OC_MV_Y(_mv) + 31];
-  int mx2 = OC_MVMAP2[qpx][OC_MV_X(_mv) + 31];
-  int my2 = OC_MVMAP2[qpy][OC_MV_Y(_mv) + 31];
-  int offs = my * _state->ref_ystride[_pli] + mx;
-  if (mx2 || my2) {
-    _offsets[1] = offs + my2 * _state->ref_ystride[_pli] + mx2;
-    _offsets[0] = offs;
-    return 2;
-  }
-  _offsets[0] = offs;
-  return 1;
-}
-
-static void cuda_process(
-  oc_dec_ctx *_dec,
-  oc_dec_pipeline_state *_pipe,
-  int _pli
-) {
-  int count = _pipe->cuda_count;
-  if (count <= 0 || _pipe->cuda_n <= 0) return;
-
-  size_t bytes = (size_t) count * 64 * sizeof(int16_t);
-  cudaMemcpy(_pipe->cuda_in_dev, _pipe->cuda_in, bytes, cudaMemcpyHostToDevice);
-  idct8x8_batch(_pipe->cuda_in_dev, _pipe->cuda_out_dev, count);
-
-  if (_pipe->use_cuda_mc) {
-    cuda_transfer_to_device(_dec);
-    cudaMemcpy(_pipe->cuda_mv1_dev, _pipe->cuda_mv1_host, count * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(_pipe->cuda_mv2_dev, _pipe->cuda_mv2_host, count * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(_pipe->cuda_plane_dev, _pipe->cuda_plane_host, count * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(_pipe->cuda_refi_dev, _pipe->cuda_refi_host, count * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(_pipe->cuda_off_dev, _pipe->cuda_off_host, count * sizeof(ptrdiff_t), cudaMemcpyHostToDevice);
-    mc_pack p = {
-      .ref0 = {_pipe->cuda_ref_dev[0], _pipe->cuda_ref_dev[1], _pipe->cuda_ref_dev[2]},
-      .ref1 = {_pipe->cuda_ref_gold_dev[0], _pipe->cuda_ref_gold_dev[1], _pipe->cuda_ref_gold_dev[2]},
-      .dst = {_pipe->cuda_dst_dev[0], _pipe->cuda_dst_dev[1], _pipe->cuda_dst_dev[2]},
-      .residue = _pipe->cuda_out_dev,
-      .mv1 = _pipe->cuda_mv1_dev,
-      .mv2 = _pipe->cuda_mv2_dev,
-      .refi = _pipe->cuda_refi_dev,
-      .frag_offsets = _pipe->cuda_off_dev,
-      .frag_plane = _pipe->cuda_plane_dev,
-      .ystride = _pipe->cuda_ystride_dev,
-      .nfrags = count
-    };
-    mc_cuda_launch(p);
-    cuda_transfer_to_host(_dec);
-  } else {
-    cudaMemcpy(_pipe->cuda_out, _pipe->cuda_out_dev, bytes, cudaMemcpyDeviceToHost);
-    for(int i = 0; i < count; ++i){
-      ptrdiff_t fragi = _pipe->cuda_fragment_indices[i];
-      int pli = _pipe->cuda_plane_indices[i];
-      int16_t *residue = _pipe->cuda_out + 64 * i;
-      ptrdiff_t frag_buf_off = _dec->state.frag_buf_offs[fragi];
-      int refi = _dec->state.frags[fragi].refi;
-      int ystride = _dec->state.ref_ystride[pli];
-      uint8_t *dst = _dec->state.ref_frame_data[OC_FRAME_SELF] + frag_buf_off;
-      if (refi == OC_FRAME_SELF) {
-        oc_frag_recon_intra(&_dec->state, dst, ystride, residue);
-      }
-      else {
-        int mv_off[2];
-        int opt = cuda_mv_off(&_dec->state, mv_off, pli, _dec->state.frag_mvs[fragi]);
-        const unsigned char *ref = _dec->state.ref_frame_data[refi] + frag_buf_off;
-        if(opt == 2){
-          oc_frag_recon_inter2(&_dec->state, dst, ref + mv_off[0], ref + mv_off[1], ystride, residue);
-        }
-        else{
-          oc_frag_recon_inter(&_dec->state, dst, ref + mv_off[0], ystride, residue);
-        }
-      }
-    }
-  }
-  _pipe->cuda_count = 0;
-}
-
-static void cuda_enqueue(
-  oc_dec_ctx *_dec,
-  oc_dec_pipeline_state *_pipe,
-  int _pli,
-  ptrdiff_t _fragi,
-  int16_t _dct_coeffs[128],
-  int _last_zzi,
-  uint16_t _dc_quant
-) {
-  if (_pipe->cuda_n <= 0) return;
-  if (_pipe->cuda_count >= _pipe->cuda_n) {
-    oc_state_frag_recon(&_dec->state, _fragi, _pli, _dct_coeffs, _last_zzi,_dc_quant);
-    return;
-  }
-
-  int16_t tmp[64];
-  int idx = _pipe->cuda_count++;
-
-  tmp[0] = (int16_t) (_dct_coeffs[0] * (int32_t) _dc_quant);
-  for(int i = 1; i < 64; ++i)
-    tmp[i] = _dct_coeffs[i];
-
-  memcpy(_pipe->cuda_in + idx * 64, tmp, 64 * sizeof(int16_t));
-  _pipe->cuda_fragment_indices[idx] = _fragi;
-  _pipe->cuda_plane_indices[idx] = (unsigned char) _pli;
-
-  int mv_off[2];
-  int opt = cuda_mv_off(&_dec->state, mv_off, _pli, _dec->state.frag_mvs[_fragi]);
-  _pipe->cuda_mv1_host[idx] = mv_off[0];
-  _pipe->cuda_mv2_host[idx] = (opt == 2) ? mv_off[1] : mv_off[0];
-  
-  _pipe->cuda_refi_host[idx] = _dec->state.frags[_fragi].refi;
-  _pipe->cuda_plane_host[idx] = _pli;
-  
-  int ref_idx_self = _dec->state.ref_frame_idx[OC_FRAME_SELF];
-  ptrdiff_t plane_off = _dec->state.ref_frame_bufs[ref_idx_self][_pli].data - _dec->state.ref_frame_data[ref_idx_self];
-  _pipe->cuda_off_host[idx] = _dec->state.frag_buf_offs[_fragi]-plane_off;
-}
-#endif
 
 /*Undo the DC prediction in a single plane of an MCU (one or two super block
    rows).
@@ -1957,7 +1610,7 @@ static void oc_dec_frags_recon_mcu_plane(oc_dec_ctx *_dec,
         _pipe,
         _pli,fragi,
         _pipe->dct_coeffs,
-        (int) _last_zzi,
+        (int) last_zzi,
         (uint16_t) dc_quant[qti]
       );
     }

@@ -584,6 +584,7 @@ HAVE_CUDA=no
 if test "x${ac_enable_cuda}" != xno; then
   if test "x$NVCC" != "x"; then
     HAVE_CUDA=yes
+    AC_DEFINE([HAVE_CUDA], [1], [Enable CUDA support])
   elif test "x${ac_enable_cuda}" = xyes; then
     AC_MSG_ERROR([nvcc not found, skip this option])
   fi
@@ -593,7 +594,7 @@ CUDA_CFLAGS=""
 CUDA_LIBS=""
 if test "x$HAVE_CUDA" = xyes; then
   CUDA_CFLAGS="-Xcompiler -fPIC"
-  CUDA_LIBS=""
+  CUDA_LIBS="-L/usr/local/cuda/lib64 -lcudart -lstdc++"
 fi
 
 AM_CONDITIONAL(HAVE_CUDA, [test "x$HAVE_CUDA" != xno])

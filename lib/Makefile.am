@@ -311,6 +311,8 @@ armopts-gnu.S: arm/armopts.s
 	$(srcdir)/arm/arm2gnu.pl < $< > $@
 
 if HAVE_CUDA
+AM_CPPFLAGS += -DHAVE_CUDA
+CUDA_CFLAGS += -DHAVE_CUDA
 BUILT_SOURCES += idct_cuda.o
 
 idct_cuda.o: idct_cuda.cu
@@ -321,6 +323,11 @@ BUILT_SOURCES += mc_cuda.o
 mc_cuda.o: mc_cuda.cu
 	$(NVCC) -Xcompiler -fPIC $(AM_CPPFLAGS) $(CUDA_CFLAGS) -c $< -o $@
 
-%.lo: %.cu
-	$(LIBTOOL) --mode=compile --tag=CC $(NVCC) -Xcompiler -fPIC $(AM_CPPFLAGS) $(CUDA_CFLAGS) -c $< -o $@
+BUILT_SOURCES += cuda_helper.o
+
+cuda_helper.o: cuda_helper.cu
+	$(NVCC) -Xcompiler -fPIC $(AM_CPPFLAGS) $(CUDA_CFLAGS) -c $< -o $@
+
+libtheoradec_la_LIBADD = idct_cuda.o mc_cuda.o cuda_helper.o $(CUDA_LIBS)
+libtheora_la_LIBADD = idct_cuda.o mc_cuda.o cuda_helper.o $(CUDA_LIBS)
 endif

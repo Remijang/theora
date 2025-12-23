@@ -48,10 +48,23 @@ if HAVE_CUDA
 cuda_test_CPPFLAGS = $(OGG_CFLAGS) $(CUDA_CFLAGS)
 cuda_test_LDFLAGS = -L$(top_builddir)/lib/.libs -Xlinker -rpath -Xlinker $(abs_top_builddir)/lib/.libs
 cuda_test_LDADD = -ltheora -ltheoradec -ltheoraenc $(OGG_LIBS) $(CUDA_LIBS) \
-	$(top_builddir)/lib/idct_cuda.o $(top_builddir)/lib/mc_cuda.o
+	$(top_builddir)/lib/idct_cuda.o $(top_builddir)/lib/mc_cuda.o $(top_builddir)/lib/cuda_helper.o
 
 cuda_test: cuda_test.cu
 	$(NVCC) $(AM_CPPFLAGS) $(cuda_test_CPPFLAGS) $(cuda_test_LDFLAGS) -o $@ $< $(cuda_test_LDADD)
+
+dump_video_CUDA_LIBS = $(GETOPT_OBJS) \
+                       -L$(top_builddir)/lib/.libs -ltheoradec \
+                       $(OGG_LIBS) $(COMPAT_LIBS) $(CUDA_LIBS) \
+                       $(top_builddir)/lib/idct_cuda.o $(top_builddir)/lib/mc_cuda.o \
+					   $(top_builddir)/lib/cuda_helper.o
+dump_video_LDFLAGS = -L$(top_builddir)/lib/.libs \
+                     -Xlinker -rpath -Xlinker $(abs_top_builddir)/lib/.libs
+
+dump_video: dump_video.c
+	$(NVCC) $(AM_CPPFLAGS) $(dump_video_CPPFLAGS) $(dump_video_LDFLAGS) \
+		-o $@ $< $(dump_video_CUDA_LIBS)
+
 endif
 
 debug:
