@@ -5,6 +5,9 @@ noinst_PROGRAMS = dump_video dump_psnr libtheora_info \
 
 # possible contents of BUILDABLE_EXAMPLES:
 EXTRA_PROGRAMS = player_example encoder_example png2theora tiff2theora cuda_test
+if HAVE_CUDA
+EXTRA_PROGRAMS += cuda_test
+endif
 EXTRA_DIST = encoder_example_ffmpeg
 
 AM_CPPFLAGS = -I$(top_srcdir)/include
@@ -42,11 +45,10 @@ tiff2theora_CFLAGS = $(OGG_CFLAGS) $(TIFF_CFLAGS)
 tiff2theora_LDADD = $(GETOPT_OBJS) $(LDADDENC) $(TIFF_LIBS) -lm
 
 if HAVE_CUDA
-cuda_test_SOURCES = cuda_test.cu
 cuda_test_CPPFLAGS = $(OGG_CFLAGS) $(CUDA_CFLAGS)
 cuda_test_LDFLAGS = -L$(top_builddir)/lib/.libs -Xlinker -rpath -Xlinker $(abs_top_builddir)/lib/.libs
-cuda_test_LDADD = -ltheora -ltheoradec -ltheoraenc $(OGG_LIBS) $(CUDA_LIBS)
-cuda_test_LINK = $(NVCC)
+cuda_test_LDADD = -ltheora -ltheoradec -ltheoraenc $(OGG_LIBS) $(CUDA_LIBS) \
+	$(top_builddir)/lib/idct_cuda.o $(top_builddir)/lib/mc_cuda.o
 
 cuda_test: cuda_test.cu
 	$(NVCC) $(AM_CPPFLAGS) $(cuda_test_CPPFLAGS) $(cuda_test_LDFLAGS) -o $@ $< $(cuda_test_LDADD)

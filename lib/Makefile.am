@@ -2,6 +2,7 @@ AUTOMAKE_OPTIONS = subdir-objects
 
 AM_CPPFLAGS = -I$(top_srcdir)/include
 AM_CFLAGS = $(OGG_CFLAGS) $(CAIRO_CFLAGS)
+BUILT_SOURCES =
 
 EXTRA_DIST = \
 	encoder_disabled.c \
@@ -253,9 +254,6 @@ libtheoradec_la_LDFLAGS = \
   -version-info @THDEC_LIB_CURRENT@:@THDEC_LIB_REVISION@:@THDEC_LIB_AGE@ \
   @THEORADEC_LDFLAGS@ @CAIRO_LIBS@ \
   -no-undefined
-if HAVE_CUDA
-libtheoradec_la_LIBADD = $(CUDA_LIBS)
-endif
 
 libtheoraenc_la_SOURCES = \
 	$(encoder_sources) \
@@ -266,9 +264,6 @@ libtheoraenc_la_LDFLAGS = \
   -version-info @THENC_LIB_CURRENT@:@THENC_LIB_REVISION@:@THENC_LIB_AGE@ \
   @THEORAENC_LDFLAGS@ $(OGG_LIBS) \
   -no-undefined
-if HAVE_CUDA
-libtheoraenc_la_LIBADD = $(CUDA_LIBS)
-endif
 
 libtheora_la_SOURCES = \
 	$(decoder_sources) \
@@ -281,9 +276,6 @@ libtheora_la_LDFLAGS = \
   -version-info @TH_LIB_CURRENT@:@TH_LIB_REVISION@:@TH_LIB_AGE@ \
   @THEORA_LDFLAGS@ @CAIRO_LIBS@ $(OGG_LIBS) \
   -no-undefined
-if HAVE_CUDA
-libtheora_la_LIBADD = $(CUDA_LIBS)
-endif
 
 debug:
 	$(MAKE) all CFLAGS="@DEBUG@" 
@@ -319,6 +311,16 @@ armopts-gnu.S: arm/armopts.s
 	$(srcdir)/arm/arm2gnu.pl < $< > $@
 
 if HAVE_CUDA
+BUILT_SOURCES += idct_cuda.o
+
+idct_cuda.o: idct_cuda.cu
+	$(NVCC) -Xcompiler -fPIC $(AM_CPPFLAGS) $(CUDA_CFLAGS) -c $< -o $@
+
+BUILT_SOURCES += mc_cuda.o
+
+mc_cuda.o: mc_cuda.cu
+	$(NVCC) -Xcompiler -fPIC $(AM_CPPFLAGS) $(CUDA_CFLAGS) -c $< -o $@
+
 %.lo: %.cu
-	$(LIBTOOL) --mode=compile --tag=CXX $(NVCC) $(AM_CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) $(CUDA_CFLAGS) -c $< -o $@
+	$(LIBTOOL) --mode=compile --tag=CC $(NVCC) -Xcompiler -fPIC $(AM_CPPFLAGS) $(CUDA_CFLAGS) -c $< -o $@
 endif
